@@ -2,7 +2,6 @@ name: Continuous 24/7 VPS Runner 1
 
 on:
   schedule:
-    # بيشتغل كل 6 ساعات (الساعة 00:00, 06:00, 12:00, 18:00 UTC)
     - cron: '0 0,6,12,18 * * *'
   workflow_dispatch:
 
@@ -15,25 +14,21 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Install Tools & SSH
+      - name: Install Tools (FFmpeg, Node.js, Deno, yt-dlp)
         run: |
           sudo apt-get update
-          sudo apt-get install -y ffmpeg nodejs openssh-server
+          sudo apt-get install -y ffmpeg nodejs
           curl -fsSL https://deno.land/install.sh | sh
           echo "$HOME/.deno/bin" >> $GITHUB_PATH
           pip install -U yt-dlp
-          
-          # إنشاء مستخدم SSH بكلمة سر ثابتة
-          sudo useradd -m runneruser || true
-          echo "runneruser:123456" | sudo chpasswd
-          sudo service ssh start
 
-      - name: Connect to Tailscale Network
+      - name: Connect to Tailscale with SSH
         uses: tailscale/github-action@v2
         with:
           authkey: ${{ secrets.TAILSCALE_AUTHKEY }}
+          args: --ssh
 
       - name: Keep Alive Loop (4 Hours)
         run: |
-          echo "VPS 1 is active and connected to Tailscale!"
+          echo "VPS 1 is active!"
           sleep 14400
