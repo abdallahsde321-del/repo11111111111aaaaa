@@ -365,25 +365,66 @@ def summarize_error(stderr, url, lang):
 # ---------------------------- yt-dlp engine ----------------------------
 
 def get_attempts(url):
-    """Ordered list of strategies. YouTube-only tricks never run for other sites."""
-    attempts = [{"label": "standard", "args": [], "fragments": FRAGMENTS}]
-    if is_youtube_url(url):
-        attempts.append({
-            "label": "youtube-tv-safari",
-            "args": ["--extractor-args", "youtube:player_client=tv,web_safari"],
-            "fragments": min(FRAGMENTS, 8),
-        })
-        attempts.append({
-            "label": "youtube-android_vr-embedded",
-            "args": ["--extractor-args", "youtube:player_client=android_vr,web_embedded"],
-            "fragments": min(FRAGMENTS, 8),
-        })
-    elif HAS_IMPERSONATION:
-        attempts.append({
-            "label": "impersonate-chrome",
-            "args": ["--impersonate", "chrome"],
-            "fragments": min(FRAGMENTS, 8),
-        })
+    """Return ordered strategies; YouTube-specific clients stay YouTube-only."""
+    attempts = [
+        {"label": "standard", "args": [], "fragments": FRAGMENTS}
+    ]
+
+    if not is_youtube_url(url):
+        if HAS_IMPERSONATION:
+            attempts.append({
+                "label": "impersonate-chrome",
+                "args": ["--impersonate", "chrome"],
+                "fragments": min(FRAGMENTS, 8),
+            })
+        return attempts
+
+    youtube_fragments = min(FRAGMENTS, 8)
+
+    # Keep each YouTube client in its own attempt. A missing-format result
+    # from one client must not prevent trying the next client.
+    attempts.extend([
+        {
+            "label": "youtube-mweb-po-token",
+            "args": [
+                "--extractor-args",
+                "youtube:player_client=mweb",
+            ],
+            "fragments": youtube_fragments,
+        },
+        {
+            "label": "youtube-web-safari",
+            "args": [
+                "--extractor-args",
+                "youtube:player_client=web_safari",
+            ],
+            "fragments": youtube_fragments,
+        },
+        {
+            "label": "youtube-web-embedded",
+            "args": [
+                "--extractor-args",
+                "youtube:player_client=web_embedded",
+            ],
+            "fragments": youtube_fragments,
+        },
+        {
+            "label": "youtube-android-vr",
+            "args": [
+                "--extractor-args",
+                "youtube:player_client=android_vr",
+            ],
+            "fragments": youtube_fragments,
+        },
+        {
+            "label": "youtube-tv",
+            "args": [
+                "--extractor-args",
+                "youtube:player_client=tv",
+            ],
+            "fragments": youtube_fragments,
+        },
+    ])
     return attempts
 
 
@@ -909,6 +950,8 @@ def flush_pending_updates():
 def main():
     print("Telegram video bot started (no cookies).")
     print(f"concurrent fragments: {FRAGMENTS} | impersonation: {HAS_IMPERSONATION} | precise cuts: {PRECISE_CUTS}")
+    print("YouTube fallback clients: mweb, web_safari, web_embedded, android_vr, tv")
+    print("PO Token provider is expected at http://127.0.0.1:4416 (when enabled in the workflow).")
 
     try:
         bot.remove_webhook()
