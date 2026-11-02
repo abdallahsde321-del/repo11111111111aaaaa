@@ -8,6 +8,8 @@ on:
 jobs:
   run-bot:
     runs-on: ubuntu-latest
+    permissions:
+      actions: write
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -17,6 +19,7 @@ jobs:
         with:
           python-version: '3.11'
 
+      # تثبيت البيئات المطلوبة
       - name: Install FFmpeg, Node.js and Deno
         run: |
           sudo apt-get update
@@ -35,3 +38,11 @@ jobs:
           COOKIES_CONTENT: ${{ secrets.COOKIES_CONTENT }}
         run: |
           python bot_alpha.py
+
+      # إعادة تشغيل الـ Workflow أوتوماتيكياً فور الانتهاء
+      - name: Auto Trigger Next Run
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh workflow run run_alpha.yml
