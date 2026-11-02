@@ -9,15 +9,16 @@ from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeybo
 TOKEN = os.environ.get('BOT_TOKEN')
 bot = telebot.TeleBot(TOKEN)
 
-# كتابة الكوكيز من الـ Secrets
+# إنشاء ملف الكوكيز من الـ Secrets
 cookies_data = os.environ.get('COOKIES_CONTENT')
-if cookies_data:
+if cookies_data and len(cookies_data.strip()) > 0:
     with open("cookies.txt", "w", encoding="utf-8") as f:
         f.write(cookies_data)
 
 user_data = {}
 START_TIME = time.time()
-MAX_LIFETIME = 6 * 3600  # 6 ساعات
+# التشغيل لمدة 5 ساعات و50 دقيقة للإنهاء الآمن قبل حد جيتهاب (6 ساعات)
+MAX_LIFETIME = (5 * 3600) + (50 * 60)
 
 def time_to_seconds(t_str):
     try:
@@ -127,7 +128,7 @@ def handle_steps(message):
     step = user_data[chat_id].get('step', 'waiting_for_url')
     
     if step == 'waiting_for_url' or re.search(r'https?://', text):
-        url_match = re.search(r'(https?://(?:www\.)?(?:youtube\.com/watch\?v=|youtu\.be/|youtube\.com/live/)\S+)', text)
+        url_match = re.search(r'(https?://(?:www\.)?(?:youtube\.com|youtu\.be)/\S+)', text)
         if url_match:
             user_data[chat_id]['url'] = url_match.group(1)
             user_data[chat_id]['step'] = 'setting_start_time'
@@ -208,24 +209,29 @@ def handle_counter(call):
                 return
             
             user_data[chat_id]['end_time'] = end_time
-            wait_msg = f"⏳ [Alpha] جاري قص الفيديو من `{start_time}` إلى `{end_time}` بأعلى جودة..." if lang == 'ar' else f"⏳ [Alpha] Clipping from `{start_time}` to `{end_time}`..."
+            wait_msg = f"⏳ جاري قص الفيديو من `{start_time}` إلى `{end_time}` بأعلى جودة..." if lang == 'ar' else f"⏳ Clipping from `{start_time}` to `{end_time}`..."
             bot.send_message(chat_id, wait_msg, parse_mode="Markdown")
             
             try:
-                out = f"alpha_clip_{chat_id}.mp4"
+                out = f"clip_{chat_id}.mp4"
                 if os.path.exists(out): os.remove(out)
                 
-                # نفس أمر الصورة بالظبط مع جعل الأوقات واللينك قيم متغيره ديناميكياً
                 command = [
                     "yt-dlp",
                     "--remote-components", "ejs:github",
-                    "--cookies", "cookies.txt",
+                ]
+                
+                if os.path.exists("cookies.txt") and os.path.getsize("cookies.txt") > 0:
+                    command.extend(["--cookies", "cookies.txt"])
+                
+                command.extend([
                     "--download-sections", f"*{start_time}-{end_time}",
                     "-f", "bestvideo+bestaudio/best",
                     "--merge-output-format", "mp4",
                     "-o", out,
                     url
-                ]
+                ])
+                
                 subprocess.run(command, capture_output=True, text=True, check=True)
                 
                 if os.path.exists(out):
@@ -238,7 +244,7 @@ def handle_counter(call):
                 else:
                     bot.send_message(chat_id, "❌ حدث خطأ أثناء القص، تأكد من الوقت والرابط.")
             except subprocess.CalledProcessError as e:
-                err_log = e.stderr[-300:] if e.stderr else str(e)
+                err_log = e.stderr[-350:] if e.stderr else str(e)
                 bot.send_message(chat_id, f"❌ خطأ تقني أثناء القص:\n`{err_log}`", parse_mode="Markdown")
             except Exception as e:
                 bot.send_message(chat_id, f"❌ خطأ غير متوقع: {str(e)}")
@@ -253,16 +259,12 @@ def handle_counter(call):
     except Exception: pass
 
 if __name__ == "__main__":
-    print("🤖 Worker Alpha (6H) running...")
+    print("🤖 Worker Alpha running...")
     while True:
         if time.time() - START_TIME > MAX_LIFETIME:
-            print("🔄 انتهت الـ 6 ساعات الخاصة بـ Alpha...")
+            print("🔄 انتهت الـ 5 ساعات و50 دقيقة، جاري إيقاف الجلسة للبدء في الجديدة أوتوماتيكياً...")
             sys.exit(0)
         try:
             bot.polling(none_stop=True, interval=1, timeout=30, skip_pending=True)
-        except Exception as e:
-            err_str = str(e)
-            if "409" in err_str or "Conflict" in err_str:
-                time.sleep(10)
-            else:
-                time.sleep(4)
+        except Exception:
+            time.sleep(3)
