@@ -21,6 +21,7 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from urllib.parse import urlsplit
+from urllib.request import urlopen
 
 import telebot
 from telebot.types import (
@@ -428,6 +429,61 @@ def get_attempts(url):
     return attempts
 
 
+
+YOUTUBE_DIAGNOSTIC_MARKERS = (
+    "po token providers",
+    "generating a gvs po token",
+    "po token",
+    "sign in to confirm",
+    "not a bot",
+    "no video formats",
+    "unsupported url",
+    "error:",
+)
+
+
+def check_po_token_provider():
+    """Check whether the local bgutil provider HTTP server responds."""
+    ping_url = "http://127.0.0.1:4416/ping"
+    try:
+        with urlopen(ping_url, timeout=3) as response:
+            body = response.read(256).decode("utf-8", errors="replace").strip()
+            print(
+                f"[po-token] provider reachable: HTTP {response.status}"
+                + (f" | {body[:200]}" if body else "")
+            )
+            return 200 <= response.status < 300
+    except Exception as exc:
+        print(
+            f"[po-token] provider unavailable at {ping_url}: "
+            f"{type(exc).__name__}: {exc}"
+        )
+        return False
+
+
+def log_attempt_diagnostics(attempt, return_code, stderr):
+    """Print useful yt-dlp/PO-token lines without dumping the entire verbose log."""
+    print(
+        f"[download] attempt result: mode={attempt['label']} "
+        f"exit_code={return_code}"
+    )
+
+    lines = [line.strip() for line in (stderr or "").splitlines() if line.strip()]
+    selected = []
+    for line in lines:
+        low = line.lower()
+        if any(marker in low for marker in YOUTUBE_DIAGNOSTIC_MARKERS):
+            selected.append(line)
+
+    # If yt-dlp failed for another reason, retain the last useful stderr lines.
+    if return_code != 0 and not selected:
+        selected = lines[-8:]
+
+    # Keep Actions logs readable even if a verbose response is unusually long.
+    for line in selected[-30:]:
+        print(f"[yt-dlp diagnostic] {line[:1200]}")
+
+
 def build_command(url, output_template, quality, start_time, end_time, attempt):
     cmd = [
         "yt-dlp",
@@ -446,6 +502,11 @@ def build_command(url, output_template, quality, start_time, end_time, attempt):
         "--output", output_template,
     ]
     cmd += attempt["args"]
+
+    # yt-dlp only reports provider discovery/token generation at debug level.
+    # Enable verbose output for YouTube, then filter it in log_attempt_diagnostics().
+    if is_youtube_url(url):
+        cmd.append("--verbose")
 
     # Clipping: ffmpeg pulls only the requested range (no full download).
     # End 00:00:00 means "until the end of the video".
@@ -575,6 +636,11 @@ def run_download(chat_id, snapshot, quality):
             print(f"[download] chat={chat_id} attempt={index}/{len(attempts)} mode={attempt['label']}")
 
             code, _out, err = execute_command(command)
+            if is_youtube_url(url):
+                log_attempt_diagnostics(attempt, code, err)
+            elif code != 0:
+                log_attempt_diagnostics(attempt, code, err)
+
             media_path = find_media_file(work_dir)
             if code == 0 and media_path:
                 break
@@ -951,7 +1017,8 @@ def main():
     print("Telegram video bot started (no cookies).")
     print(f"concurrent fragments: {FRAGMENTS} | impersonation: {HAS_IMPERSONATION} | precise cuts: {PRECISE_CUTS}")
     print("YouTube fallback clients: mweb, web_safari, web_embedded, android_vr, tv")
-    print("PO Token provider is expected at http://127.0.0.1:4416 (when enabled in the workflow).")
+    print("Checking local YouTube PO Token provider...")
+    check_po_token_provider()
 
     try:
         bot.remove_webhook()
