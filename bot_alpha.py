@@ -62,7 +62,7 @@ def get_time_keyboard(prefix, h, m, s):
 def get_quality_keyboard():
     markup = InlineKeyboardMarkup(row_width=2)
     markup.row(
-        InlineKeyboardButton("⚡ 1080p (FHD سريح)", callback_data="quality_1080"),
+        InlineKeyboardButton("⚡ 1080p (أعلى جودة)", callback_data="quality_1080"),
         InlineKeyboardButton("🎬 720p (HD)", callback_data="quality_720")
     )
     markup.row(
@@ -88,7 +88,7 @@ def send_welcome(message):
     chat_id = message.chat.id
     if chat_id in user_data and 'lang' in user_data[chat_id]:
         lang = user_data[chat_id]['lang']
-        msg = "مرحباً بك مجدداً! أرسل رابط فيديو أو بث اليوتيوب الآن لقص مقطع جديد:" if lang == 'ar' else "Welcome back! Send a YouTube link now to clip a new video:"
+        msg = "مرحباً بك مجدداً! أرسل رابط أي فيديو الآن لقص المقطع:" if lang == 'ar' else "Welcome back! Send any video link now to clip:"
         bot.send_message(chat_id, msg, reply_markup=get_main_menu_keyboard(lang))
         user_data[chat_id]['step'] = 'waiting_for_url'
     else:
@@ -108,7 +108,7 @@ def set_language(call):
     user_data[chat_id].update({'lang': lang, 'h': 0, 'm': 0, 's': 0, 'step': 'waiting_for_url'})
     bot.answer_callback_query(call.id)
     
-    msg = "✅ تم اختيار اللغة العربية.\nالرجاء إرسال رابط فيديو أو بث اليوتيوب الآن:" if lang == 'ar' else "✅ English selected.\nPlease send the YouTube video or live link now:"
+    msg = "✅ تم اختيار اللغة العربية.\nالرجاء إرسال رابط الفيديو الآن (من أي موقع):" if lang == 'ar' else "✅ English selected.\nPlease send the video link now (from any site):"
     bot.send_message(chat_id, msg, reply_markup=get_main_menu_keyboard(lang))
 
 @bot.message_handler(func=lambda message: True)
@@ -124,7 +124,7 @@ def handle_steps(message):
 
     if text in ["🎬 قص فيديو جديد", "🎬 Clip New Video"]:
         user_data[chat_id]['step'] = 'waiting_for_url'
-        msg = "أرسل رابط فيديو أو بث اليوتيوب الآن:" if lang == 'ar' else "Send YouTube link now:"
+        msg = "أرسل رابط أي فيديو الآن (يوتيوب، تيك توك، فيسبوك، إنستجرام...):" if lang == 'ar' else "Send any video link now:"
         bot.send_message(chat_id, msg, reply_markup=get_main_menu_keyboard(lang))
         return
     elif text in ["🌐 تغيير اللغة", "🌐 Change Language"]:
@@ -136,14 +136,15 @@ def handle_steps(message):
         bot.send_message(chat_id, "اختر اللغة الجديدة / Choose language:", reply_markup=markup)
         return
     elif text in ["ℹ️ مساعدة", "ℹ️ Help"]:
-        help_text = "💡 البوت يقوم بقص أي مقطع بالسرعة الفائقة وبأعلى جودة." if lang == 'ar' else "💡 Fast video clipping in high quality."
+        help_text = "💡 البوت يدعم القص والتحميل السريع من كل المواقع بأعلى جودة." if lang == 'ar' else "💡 Fast downloading and clipping from all video sites."
         bot.send_message(chat_id, help_text)
         return
 
     step = user_data[chat_id].get('step', 'waiting_for_url')
     
     if step == 'waiting_for_url' or re.search(r'https?://', text):
-        url_match = re.search(r'(https?://(?:www\.)?(?:youtube\.com|youtu\.be)/\S+)', text)
+        # النمط الشامل لكل أنواع الروابط من أي موقع
+        url_match = re.search(r'(https?://[^\s]+)', text)
         if url_match:
             user_data[chat_id]['url'] = url_match.group(1)
             user_data[chat_id]['step'] = 'setting_start_time'
@@ -152,7 +153,7 @@ def handle_steps(message):
             msg_text = "⏱️ حدد **وقت البداية** بالعداد:" if lang == 'ar' else "⏱️ Set **start time**:"
             bot.send_message(chat_id, msg_text, reply_markup=get_time_keyboard("start", 0, 0, 0), parse_mode="Markdown")
         else:
-            err = "❌ رابط يوتيوب غير صحيح. حاول مرة أخرى:" if lang == 'ar' else "❌ Invalid YouTube URL. Try again:"
+            err = "❌ رابط غير صحيح. حاول مرة أخرى:" if lang == 'ar' else "❌ Invalid URL. Try again:"
             bot.send_message(chat_id, err)
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith('confirm_delete_') or call.data.startswith('cancel_delete_'))
@@ -192,11 +193,11 @@ def handle_quality_selection(call):
     end_time = user_data[chat_id]['end_time']
     url = user_data[chat_id]['url']
 
-    bot.answer_callback_query(call.id, f"جاري السحب الفوري: {quality_choice}")
+    bot.answer_callback_query(call.id, f"جاري التحميل: {quality_choice}")
     
     is_audio_only = (quality_choice == 'audio')
     
-    wait_msg = f"⚡ [قص سريع] جاري سحب مقطع `{quality_choice}`..." if lang == 'ar' else f"⚡ Fast clipping `{quality_choice}`..."
+    wait_msg = f"⚡ جاري معالجة الفيديو ({quality_choice}) من `{start_time}` إلى `{end_time}`..." if lang == 'ar' else f"⚡ Processing video ({quality_choice})..."
     bot.send_message(chat_id, wait_msg, parse_mode="Markdown")
 
     try:
@@ -204,16 +205,18 @@ def handle_quality_selection(call):
         out = f"clip_{chat_id}.{ext}"
         if os.path.exists(out): os.remove(out)
 
-        # أوامر السرعة الفائقة (منع إعادة الترميز والنسخ المباشر)
         command = [
             "yt-dlp",
             "--remote-components", "ejs:github",
-            "--no-force-keyframes-at-cuts",  # السر في السرعة المباشرة بدون Re-encode
-            "--download-sections", f"*{start_time}-{end_time}"
+            "--no-force-keyframes-at-cuts"
         ]
 
         if os.path.exists("cookies.txt") and os.path.getsize("cookies.txt") > 0:
             command.extend(["--cookies", "cookies.txt"])
+
+        # إضافة التقطيع لو الأوقات مش أصفار
+        if start_time != "00:00:00" or end_time != "00:00:00":
+            command.extend(["--download-sections", f"*{start_time}-{end_time}"])
 
         if is_audio_only:
             command.extend([
@@ -224,6 +227,7 @@ def handle_quality_selection(call):
             ])
         else:
             height = quality_choice
+            # صيغة عامة متوافق مع كل المواقع بدلاً من يوتيوب فقط
             fmt = f"bestvideo[height<={height}]+bestaudio/best[height<={height}]/best"
             command.extend([
                 "-f", fmt,
@@ -235,7 +239,7 @@ def handle_quality_selection(call):
         subprocess.run(command, capture_output=True, text=True, check=True)
 
         if os.path.exists(out):
-            caption = "✅ تفضل مقطعك جاهز بسرعة فائقة!" if lang == 'ar' else "✅ Fast clip ready!"
+            caption = "✅ تفضل المقطع جاهز بسرعة فائقة!" if lang == 'ar' else "✅ Clip ready!"
             with open(out, "rb") as f:
                 if is_audio_only:
                     bot.send_audio(chat_id, f, caption=caption, reply_markup=get_main_menu_keyboard(lang))
@@ -245,10 +249,10 @@ def handle_quality_selection(call):
             confirm_msg = "هل تم تأكيد واستلام الملف بنجاح لحذفه من الجهاز؟" if lang == 'ar' else "Confirm file receipt to delete from server?"
             bot.send_message(chat_id, confirm_msg, reply_markup=get_confirm_keyboard(out))
         else:
-            bot.send_message(chat_id, "❌ حدث خطأ أثناء القص، تأكد من الوقت والرابط.")
+            bot.send_message(chat_id, "❌ حدث خطأ أثناء التحميل، تأكد من صحة الرابط.")
     except subprocess.CalledProcessError as e:
         err_log = e.stderr[-350:] if e.stderr else str(e)
-        bot.send_message(chat_id, f"❌ خطأ تقني أثناء القص:\n`{err_log}`", parse_mode="Markdown")
+        bot.send_message(chat_id, f"❌ خطأ تقني أثناء التحميل:\n`{err_log}`", parse_mode="Markdown")
     except Exception as e:
         bot.send_message(chat_id, f"❌ خطأ غير متوقع: {str(e)}")
 
@@ -292,14 +296,15 @@ def handle_counter(call):
             start_sec = time_to_seconds(start_time)
             end_sec = time_to_seconds(end_time)
             
-            if end_sec <= start_sec:
+            # السماح بالوقت صفر لو عايز ينزل الفيديو كامل بدون قص
+            if end_sec != 0 and end_sec <= start_sec:
                 err_time = "❌ خطأ: وقت النهاية يجب أن يكون أكبر من وقت البداية!" if lang == 'ar' else "❌ Error: End time must be greater than start time!"
                 bot.send_message(chat_id, err_time)
                 return
             
             user_data[chat_id]['end_time'] = end_time
             
-            msg_qual = "🎬 اختر الجودة أو الصيغة المطلوبة للمقطع:" if lang == 'ar' else "🎬 Choose desired quality/format for the clip:"
+            msg_qual = "🎬 اختر الجودة أو الصيغة المطلوبة للمقطع:" if lang == 'ar' else "🎬 Choose desired quality/format:"
             bot.send_message(chat_id, msg_qual, reply_markup=get_quality_keyboard())
         return
 
@@ -310,7 +315,7 @@ def handle_counter(call):
     except Exception: pass
 
 if __name__ == "__main__":
-    print("🤖 Fast Worker Alpha running...")
+    print("🤖 Universal Fast Worker Alpha running...")
     while True:
         if time.time() - START_TIME > MAX_LIFETIME:
             print("🔄 انتهت الجلسة، جاري إعادة التشغيل أوتوماتيكياً...")
