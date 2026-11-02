@@ -1,0 +1,36 @@
+name: Run Worker Alpha
+
+on:
+  schedule:
+    # إعادة تشغيل تلقائية كل 6 ساعات لتأكيد استمرارية السيرفر
+    - cron: '0 */6 * * *'
+  workflow_dispatch:
+
+jobs:
+  run-bot:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install FFmpeg
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run Alpha Bot
+        env:
+          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+          COOKIES_CONTENT: ${{ secrets.COOKIES_CONTENT }}
+        run: |
+          python bot_alpha.py
