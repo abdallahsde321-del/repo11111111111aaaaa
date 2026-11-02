@@ -9,6 +9,7 @@ from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeybo
 TOKEN = os.environ.get('BOT_TOKEN')
 bot = telebot.TeleBot(TOKEN)
 
+# كتابة ملف الكوكيز إن وجد
 cookies_data = os.environ.get('COOKIES_CONTENT')
 if cookies_data:
     with open("cookies.txt", "w", encoding="utf-8") as f:
@@ -17,6 +18,14 @@ if cookies_data:
 user_data = {}
 START_TIME = time.time()
 MAX_LIFETIME = 6 * 3600  # 6 ساعات
+
+def time_to_seconds(t_str):
+    """تحويل الصيغة HH:MM:SS إلى ثواني للتحقق"""
+    try:
+        parts = list(map(int, t_str.split(':')))
+        return parts[0] * 3600 + parts[1] * 60 + parts[2]
+    except Exception:
+        return 0
 
 def get_main_menu_keyboard(lang='ar'):
     markup = ReplyKeyboardMarkup(row_width=2, resize_keyboard=True)
@@ -109,7 +118,7 @@ def handle_steps(message):
             InlineKeyboardButton("العربية 🇸🇦", callback_data="lang_ar"),
             InlineKeyboardButton("English 🇬🇧", callback_data="lang_en")
         )
-        bot.send_message(chat_id, "اختر اللغة جديدة / Choose language:", reply_markup=markup)
+        bot.send_message(chat_id, "اختر اللغة الجديدة / Choose language:", reply_markup=markup)
         return
     elif text in ["ℹ️ مساعدة", "ℹ️ Help"]:
         help_text = "💡 البوت يقوم بقص أي مقطع من فيديوهات أو بثوث يوتيوب المباشرة بأعلى جودة بدقة ثانية بـ ثانية." if lang == 'ar' else "💡 This bot clips any section from YouTube videos or live streams in high quality."
@@ -191,8 +200,12 @@ def handle_counter(call):
             start_time = user_data[chat_id]['start_time']
             url = user_data[chat_id]['url']
             
-            if start_time == end_time:
-                err_time = "❌ يجب أن يكون وقت النهاية أكبر من وقت البداية!" if lang == 'ar' else "❌ End time must be after start time!"
+            start_sec = time_to_seconds(start_time)
+            end_sec = time_to_seconds(end_time)
+            
+            # التحقق الدقيق من منطق الوقت (النهاية يجب أن تكون أكبر من البداية)
+            if end_sec <= start_sec:
+                err_time = "❌ خطأ: وقت النهاية يجب أن يكون أكبر من وقت البداية!" if lang == 'ar' else "❌ Error: End time must be greater than start time!"
                 bot.send_message(chat_id, err_time)
                 return
             
@@ -204,14 +217,14 @@ def handle_counter(call):
                 out = f"alpha_clip_{chat_id}.mp4"
                 if os.path.exists(out): os.remove(out)
                 
-                # إعدادات صيغة جديدة مرنة لمنع إيرور Requested format is not available
+                # صيغة yt-dlp المتوافقة الشاملة
                 command = [
                     "yt-dlp",
-                    "--remote-components", "ejs:github",
                     "--cookies", "cookies.txt",
                     "--download-sections", f"*{start_time}-{end_time}",
-                    "-f", "b/bestvideo+bestaudio",
+                    "-f", "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
                     "--merge-output-format", "mp4",
+                    "--no-check-certificates",
                     "-o", out,
                     url
                 ]
@@ -249,5 +262,10 @@ if __name__ == "__main__":
             sys.exit(0)
         try:
             bot.polling(none_stop=True, interval=1, timeout=30, skip_pending=True)
-        except Exception:
-            time.sleep(5)
+        except Exception as e:
+            err_str = str(e)
+            if "409" in err_str or "Conflict" in err_str:
+                # التأخير عند الصدام لتفادي استهلاك المعالج والسجلات
+                time.sleep(12)
+            else:
+                time.sleep(4)
