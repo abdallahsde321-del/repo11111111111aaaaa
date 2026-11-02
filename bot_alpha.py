@@ -9,7 +9,7 @@ from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeybo
 TOKEN = os.environ.get('BOT_TOKEN')
 bot = telebot.TeleBot(TOKEN)
 
-# ساخت فایل کوکی از Secrets
+# إنشاء ملف الكوكيز تلقائياً من ה-Secrets إن وجد
 cookies_data = os.environ.get('COOKIES_CONTENT')
 if cookies_data and len(cookies_data.strip()) > 0:
     with open("cookies.txt", "w", encoding="utf-8") as f:
@@ -17,7 +17,7 @@ if cookies_data and len(cookies_data.strip()) > 0:
 
 user_data = {}
 START_TIME = time.time()
-MAX_LIFETIME = (5 * 3600) + (50 * 60) # ۵ ساعت و ۵۰ دقیقه
+MAX_LIFETIME = (5 * 3600) + (50 * 60) # 5 ساعات و50 دقيقة
 
 def time_to_seconds(t_str):
     try:
@@ -57,6 +57,23 @@ def get_time_keyboard(prefix, h, m, s):
         InlineKeyboardButton("🔽", callback_data=f"{prefix}_s_minus")
     )
     markup.row(InlineKeyboardButton("✅ تم وتأكيد الوقت", callback_data=f"{prefix}_done"))
+    return markup
+
+def get_quality_keyboard():
+    """لوحة اختيار الجودة للمقطع"""
+    markup = InlineKeyboardMarkup(row_width=2)
+    markup.row(
+        InlineKeyboardButton("🌟 1080p (FHD)", callback_data="quality_1080"),
+        InlineKeyboardButton("🎬 720p (HD)", callback_data="quality_720")
+    )
+    markup.row(
+        InlineKeyboardButton("📱 480p", callback_data="quality_480"),
+        InlineKeyboardButton("⚡ 360p", callback_data="quality_360")
+    )
+    markup.row(
+        InlineKeyboardButton("📉 144p", callback_data="quality_144"),
+        InlineKeyboardButton("🎵 صوت فقط (MP3)", callback_data="quality_audio")
+    )
     return markup
 
 def get_confirm_keyboard(filename):
@@ -120,7 +137,7 @@ def handle_steps(message):
         bot.send_message(chat_id, "اختر اللغة الجديدة / Choose language:", reply_markup=markup)
         return
     elif text in ["ℹ️ مساعدة", "ℹ️ Help"]:
-        help_text = "💡 البوت يقوم بقص أي مقطع من فيديوهات أو بثوث يوتيوب المباشرة بأعلى جودة بدقة ثانية بـ ثانية." if lang == 'ar' else "💡 This bot clips any section from YouTube videos or live streams in high quality."
+        help_text = "💡 البوت يقوم بقص أي مقطع من فيديوهات أو بثوث يوتيوب المباشرة بالدقة والصيغة التي تختارها." if lang == 'ar' else "💡 This bot clips any section from YouTube videos/lives in your selected resolution."
         bot.send_message(chat_id, help_text)
         return
 
@@ -149,7 +166,7 @@ def handle_delete_confirmation(call):
         if os.path.exists(filename):
             try:
                 os.remove(filename)
-                msg = "🗑️ تم تأكيد الاستلام وحذف الفيديو من الجهاز بنجاح!" if lang == 'ar' else "🗑️ Confirmed! Video file deleted from server."
+                msg = "🗑️ تم تأكيد الاستلام وحذف الملف من الجهاز بنجاح!" if lang == 'ar' else "🗑️ Confirmed! File deleted from server."
             except Exception as e:
                 msg = f"❌ خطأ أثناء الحذف: {str(e)}"
         else:
@@ -159,11 +176,86 @@ def handle_delete_confirmation(call):
         bot.edit_message_text(chat_id=chat_id, message_id=call.message.message_id, text=msg)
     
     elif call.data.startswith('cancel_delete_'):
-        msg = "ℹ️ تم الإبقاء على الفيديو مؤقتاً." if lang == 'ar' else "ℹ️ Video retained temporarily."
+        msg = "ℹ️ تم الإبقاء على الملف مؤقتاً." if lang == 'ar' else "ℹ️ File retained temporarily."
         bot.answer_callback_query(call.id, "تم الإلغاء")
         bot.edit_message_text(chat_id=chat_id, message_id=call.message.message_id, text=msg)
 
-@bot.callback_query_handler(func=lambda call: '_' in call.data and not call.data.startswith('lang_') and not 'delete_' in call.data)
+@bot.callback_query_handler(func=lambda call: call.data.startswith('quality_'))
+def handle_quality_selection(call):
+    chat_id = call.message.chat.id
+    if chat_id not in user_data or 'start_time' not in user_data[chat_id] or 'end_time' not in user_data[chat_id]:
+        bot.answer_callback_query(call.id, "انتهاء الجلسة، أرسل الرابط مجدداً")
+        return
+
+    quality_choice = call.data.replace('quality_', '')
+    lang = user_data[chat_id].get('lang', 'ar')
+    start_time = user_data[chat_id]['start_time']
+    end_time = user_data[chat_id]['end_time']
+    url = user_data[chat_id]['url']
+
+    bot.answer_callback_query(call.id, f"تم اختيار الجودة: {quality_choice}")
+    
+    is_audio_only = (quality_choice == 'audio')
+    
+    wait_msg = f"⏳ جاري معالجة المقطع ({quality_choice}) من `{start_time}` إلى `{end_time}`..." if lang == 'ar' else f"⏳ Processing clip ({quality_choice}) from `{start_time}` to `{end_time}`..."
+    bot.send_message(chat_id, wait_msg, parse_mode="Markdown")
+
+    try:
+        ext = "mp3" if is_audio_only else "mp4"
+        out = f"clip_{chat_id}.{ext}"
+        if os.path.exists(out): os.remove(out)
+
+        command = [
+            "yt-dlp",
+            "--remote-components", "ejs:github",
+        ]
+
+        if os.path.exists("cookies.txt") and os.path.getsize("cookies.txt") > 0:
+            command.extend(["--cookies", "cookies.txt"])
+
+        command.extend(["--download-sections", f"*{start_time}-{end_time}"])
+
+        # تحديد أمر الجودة بناءً على اختيار المستخدم
+        if is_audio_only:
+            command.extend([
+                "-x", "--audio-format", "mp3",
+                "--audio-quality", "0",
+                "-o", out,
+                url
+            ])
+        else:
+            height = quality_choice
+            fmt = f"bestvideo[height<={height}]+bestaudio/best[height<={height}]/best"
+            command.extend([
+                "-f", fmt,
+                "--merge-output-format", "mp4",
+                "-o", out,
+                url
+            ])
+
+        subprocess.run(command, capture_output=True, text=True, check=True)
+
+        if os.path.exists(out):
+            caption = "✅ تفضل المقطع جاهز بالجودة المطلوبة!" if lang == 'ar' else "✅ Here is your clip in requested quality!"
+            with open(out, "rb") as f:
+                if is_audio_only:
+                    bot.send_audio(chat_id, f, caption=caption, reply_markup=get_main_menu_keyboard(lang))
+                else:
+                    bot.send_video(chat_id, f, caption=caption, reply_markup=get_main_menu_keyboard(lang))
+            
+            confirm_msg = "هل تم تأكيد واستلام الملف بنجاح لحذفه من الجهاز؟" if lang == 'ar' else "Confirm file receipt to delete from server?"
+            bot.send_message(chat_id, confirm_msg, reply_markup=get_confirm_keyboard(out))
+        else:
+            bot.send_message(chat_id, "❌ حدث خطأ أثناء التحضير، تأكد من الوقت والرابط.")
+    except subprocess.CalledProcessError as e:
+        err_log = e.stderr[-350:] if e.stderr else str(e)
+        bot.send_message(chat_id, f"❌ خطأ تقني أثناء القص:\n`{err_log}`", parse_mode="Markdown")
+    except Exception as e:
+        bot.send_message(chat_id, f"❌ خطأ غير متوقع: {str(e)}")
+
+    user_data[chat_id]['step'] = 'waiting_for_url'
+
+@bot.callback_query_handler(func=lambda call: '_' in call.data and not call.data.startswith('lang_') and not 'delete_' in call.data and not call.data.startswith('quality_'))
 def handle_counter(call):
     chat_id = call.message.chat.id
     if chat_id not in user_data: return
@@ -197,7 +289,6 @@ def handle_counter(call):
         elif prefix == 'end':
             end_time = time_str
             start_time = user_data[chat_id]['start_time']
-            url = user_data[chat_id]['url']
             
             start_sec = time_to_seconds(start_time)
             end_sec = time_to_seconds(end_time)
@@ -208,48 +299,10 @@ def handle_counter(call):
                 return
             
             user_data[chat_id]['end_time'] = end_time
-            wait_msg = f"⏳ جاري قص الفيديو من `{start_time}` إلى `{end_time}` بأعلى جودة..." if lang == 'ar' else f"⏳ Clipping from `{start_time}` to `{end_time}`..."
-            bot.send_message(chat_id, wait_msg, parse_mode="Markdown")
             
-            try:
-                out = f"clip_{chat_id}.mp4"
-                if os.path.exists(out): os.remove(out)
-                
-                command = [
-                    "yt-dlp",
-                    "--remote-components", "ejs:github",
-                    "--extractor-args", "youtube:player_client=mweb,android",
-                ]
-                
-                if os.path.exists("cookies.txt") and os.path.getsize("cookies.txt") > 0:
-                    command.extend(["--cookies", "cookies.txt"])
-                
-                command.extend([
-                    "--download-sections", f"*{start_time}-{end_time}",
-                    "-f", "bestvideo+bestaudio/best",
-                    "--merge-output-format", "mp4",
-                    "-o", out,
-                    url
-                ])
-                
-                subprocess.run(command, capture_output=True, text=True, check=True)
-                
-                if os.path.exists(out):
-                    caption = "✅ تفضل مقطعك جاهز بأعلى جودة!" if lang == 'ar' else "✅ Here is your clip!"
-                    with open(out, "rb") as f:
-                        bot.send_video(chat_id, f, caption=caption, reply_markup=get_main_menu_keyboard(lang))
-                    
-                    confirm_msg = "هل تم تأكيد واستلام الفيديو بنجاح لحذفه من الجهاز؟" if lang == 'ar' else "Confirm video receipt to delete file from server?"
-                    bot.send_message(chat_id, confirm_msg, reply_markup=get_confirm_keyboard(out))
-                else:
-                    bot.send_message(chat_id, "❌ حدث خطأ أثناء القص، تأكد من الوقت والرابط.")
-            except subprocess.CalledProcessError as e:
-                err_log = e.stderr[-350:] if e.stderr else str(e)
-                bot.send_message(chat_id, f"❌ خطأ تقني أثناء القص:\n`{err_log}`", parse_mode="Markdown")
-            except Exception as e:
-                bot.send_message(chat_id, f"❌ خطأ غير متوقع: {str(e)}")
-            
-            user_data[chat_id]['step'] = 'waiting_for_url'
+            # إرسال قائمة اختيار الجودة والصيغة للمستخدم
+            msg_qual = "🎬 اختر الجودة أو الصيغة المطلوبة للمقطع:" if lang == 'ar' else "🎬 Choose desired quality/format for the clip:"
+            bot.send_message(chat_id, msg_qual, reply_markup=get_quality_keyboard())
         return
 
     try:
@@ -259,7 +312,7 @@ def handle_counter(call):
     except Exception: pass
 
 if __name__ == "__main__":
-    print("🤖 Worker Alpha running...")
+    print("🤖 Worker Alpha running with Quality Selection...")
     while True:
         if time.time() - START_TIME > MAX_LIFETIME:
             print("🔄 انتهت الجلسة، جاري إعادة التشغيل أوتوماتيكياً...")
