@@ -9,7 +9,7 @@ from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeybo
 TOKEN = os.environ.get('BOT_TOKEN')
 bot = telebot.TeleBot(TOKEN)
 
-# إنشاء ملف الكوكيز من الـ Secrets
+# ساخت فایل کوکی از Secrets
 cookies_data = os.environ.get('COOKIES_CONTENT')
 if cookies_data and len(cookies_data.strip()) > 0:
     with open("cookies.txt", "w", encoding="utf-8") as f:
@@ -17,8 +17,7 @@ if cookies_data and len(cookies_data.strip()) > 0:
 
 user_data = {}
 START_TIME = time.time()
-# التشغيل لمدة 5 ساعات و50 دقيقة للإنهاء الآمن قبل حد جيتهاب (6 ساعات)
-MAX_LIFETIME = (5 * 3600) + (50 * 60)
+MAX_LIFETIME = (5 * 3600) + (50 * 60) # ۵ ساعت و ۵۰ دقیقه
 
 def time_to_seconds(t_str):
     try:
@@ -219,6 +218,7 @@ def handle_counter(call):
                 command = [
                     "yt-dlp",
                     "--remote-components", "ejs:github",
+                    "--extractor-args", "youtube:player_client=mweb,android",
                 ]
                 
                 if os.path.exists("cookies.txt") and os.path.getsize("cookies.txt") > 0:
@@ -262,7 +262,7 @@ if __name__ == "__main__":
     print("🤖 Worker Alpha running...")
     while True:
         if time.time() - START_TIME > MAX_LIFETIME:
-            print("🔄 انتهت الـ 5 ساعات و50 دقيقة، جاري إيقاف الجلسة للبدء في الجديدة أوتوماتيكياً...")
+            print("🔄 انتهت الجلسة، جاري إعادة التشغيل أوتوماتيكياً...")
             sys.exit(0)
         try:
             bot.polling(none_stop=True, interval=1, timeout=30, skip_pending=True)
