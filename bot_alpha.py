@@ -9,7 +9,7 @@ from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeybo
 TOKEN = os.environ.get('BOT_TOKEN')
 bot = telebot.TeleBot(TOKEN)
 
-# كتابة ملف الكوكيز إن وجد
+# كتابة الكوكيز من الـ Secrets
 cookies_data = os.environ.get('COOKIES_CONTENT')
 if cookies_data:
     with open("cookies.txt", "w", encoding="utf-8") as f:
@@ -20,7 +20,6 @@ START_TIME = time.time()
 MAX_LIFETIME = 6 * 3600  # 6 ساعات
 
 def time_to_seconds(t_str):
-    """تحويل الصيغة HH:MM:SS إلى ثواني للتحقق"""
     try:
         parts = list(map(int, t_str.split(':')))
         return parts[0] * 3600 + parts[1] * 60 + parts[2]
@@ -203,7 +202,6 @@ def handle_counter(call):
             start_sec = time_to_seconds(start_time)
             end_sec = time_to_seconds(end_time)
             
-            # التحقق الدقيق من منطق الوقت (النهاية يجب أن تكون أكبر من البداية)
             if end_sec <= start_sec:
                 err_time = "❌ خطأ: وقت النهاية يجب أن يكون أكبر من وقت البداية!" if lang == 'ar' else "❌ Error: End time must be greater than start time!"
                 bot.send_message(chat_id, err_time)
@@ -217,14 +215,14 @@ def handle_counter(call):
                 out = f"alpha_clip_{chat_id}.mp4"
                 if os.path.exists(out): os.remove(out)
                 
-                # صيغة yt-dlp المتوافقة الشاملة
+                # نفس أمر الصورة بالظبط مع جعل الأوقات واللينك قيم متغيره ديناميكياً
                 command = [
                     "yt-dlp",
+                    "--remote-components", "ejs:github",
                     "--cookies", "cookies.txt",
                     "--download-sections", f"*{start_time}-{end_time}",
-                    "-f", "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
+                    "-f", "bestvideo+bestaudio/best",
                     "--merge-output-format", "mp4",
-                    "--no-check-certificates",
                     "-o", out,
                     url
                 ]
@@ -265,7 +263,6 @@ if __name__ == "__main__":
         except Exception as e:
             err_str = str(e)
             if "409" in err_str or "Conflict" in err_str:
-                # التأخير عند الصدام لتفادي استهلاك المعالج والسجلات
-                time.sleep(12)
+                time.sleep(10)
             else:
                 time.sleep(4)
