@@ -1,3 +1,4 @@
 pyTelegramBotAPI
-yt-dlp
 requests
+yt-dlp[default,curl-cffi]
+bgutil-ytdlp-pot-provider
