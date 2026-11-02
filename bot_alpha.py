@@ -9,7 +9,7 @@ from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeybo
 TOKEN = os.environ.get('BOT_TOKEN')
 bot = telebot.TeleBot(TOKEN)
 
-# إنشاء ملف الكوكيز تلقائياً من ה-Secrets إن وجد
+# إنشاء ملف الكوكيز إن وجد
 cookies_data = os.environ.get('COOKIES_CONTENT')
 if cookies_data and len(cookies_data.strip()) > 0:
     with open("cookies.txt", "w", encoding="utf-8") as f:
@@ -60,10 +60,9 @@ def get_time_keyboard(prefix, h, m, s):
     return markup
 
 def get_quality_keyboard():
-    """لوحة اختيار الجودة للمقطع"""
     markup = InlineKeyboardMarkup(row_width=2)
     markup.row(
-        InlineKeyboardButton("🌟 1080p (FHD)", callback_data="quality_1080"),
+        InlineKeyboardButton("⚡ 1080p (FHD سريح)", callback_data="quality_1080"),
         InlineKeyboardButton("🎬 720p (HD)", callback_data="quality_720")
     )
     markup.row(
@@ -137,7 +136,7 @@ def handle_steps(message):
         bot.send_message(chat_id, "اختر اللغة الجديدة / Choose language:", reply_markup=markup)
         return
     elif text in ["ℹ️ مساعدة", "ℹ️ Help"]:
-        help_text = "💡 البوت يقوم بقص أي مقطع من فيديوهات أو بثوث يوتيوب المباشرة بالدقة والصيغة التي تختارها." if lang == 'ar' else "💡 This bot clips any section from YouTube videos/lives in your selected resolution."
+        help_text = "💡 البوت يقوم بقص أي مقطع بالسرعة الفائقة وبأعلى جودة." if lang == 'ar' else "💡 Fast video clipping in high quality."
         bot.send_message(chat_id, help_text)
         return
 
@@ -166,11 +165,11 @@ def handle_delete_confirmation(call):
         if os.path.exists(filename):
             try:
                 os.remove(filename)
-                msg = "🗑️ تم تأكيد الاستلام وحذف الملف من الجهاز بنجاح!" if lang == 'ar' else "🗑️ Confirmed! File deleted from server."
+                msg = "🗑️ تم تأكيد الاستلام وحذف الملف بنجاح!" if lang == 'ar' else "🗑️ Confirmed! File deleted."
             except Exception as e:
                 msg = f"❌ خطأ أثناء الحذف: {str(e)}"
         else:
-            msg = "✅ الملف محذوف بالفعل من الجهاز." if lang == 'ar' else "✅ File already deleted."
+            msg = "✅ الملف محذوف بالفعل." if lang == 'ar' else "✅ File already deleted."
         
         bot.answer_callback_query(call.id, "تم الحذف")
         bot.edit_message_text(chat_id=chat_id, message_id=call.message.message_id, text=msg)
@@ -193,11 +192,11 @@ def handle_quality_selection(call):
     end_time = user_data[chat_id]['end_time']
     url = user_data[chat_id]['url']
 
-    bot.answer_callback_query(call.id, f"تم اختيار الجودة: {quality_choice}")
+    bot.answer_callback_query(call.id, f"جاري السحب الفوري: {quality_choice}")
     
     is_audio_only = (quality_choice == 'audio')
     
-    wait_msg = f"⏳ جاري معالجة المقطع ({quality_choice}) من `{start_time}` إلى `{end_time}`..." if lang == 'ar' else f"⏳ Processing clip ({quality_choice}) from `{start_time}` to `{end_time}`..."
+    wait_msg = f"⚡ [قص سريع] جاري سحب مقطع `{quality_choice}`..." if lang == 'ar' else f"⚡ Fast clipping `{quality_choice}`..."
     bot.send_message(chat_id, wait_msg, parse_mode="Markdown")
 
     try:
@@ -205,17 +204,17 @@ def handle_quality_selection(call):
         out = f"clip_{chat_id}.{ext}"
         if os.path.exists(out): os.remove(out)
 
+        # أوامر السرعة الفائقة (منع إعادة الترميز والنسخ المباشر)
         command = [
             "yt-dlp",
             "--remote-components", "ejs:github",
+            "--no-force-keyframes-at-cuts",  # السر في السرعة المباشرة بدون Re-encode
+            "--download-sections", f"*{start_time}-{end_time}"
         ]
 
         if os.path.exists("cookies.txt") and os.path.getsize("cookies.txt") > 0:
             command.extend(["--cookies", "cookies.txt"])
 
-        command.extend(["--download-sections", f"*{start_time}-{end_time}"])
-
-        # تحديد أمر الجودة بناءً على اختيار المستخدم
         if is_audio_only:
             command.extend([
                 "-x", "--audio-format", "mp3",
@@ -236,7 +235,7 @@ def handle_quality_selection(call):
         subprocess.run(command, capture_output=True, text=True, check=True)
 
         if os.path.exists(out):
-            caption = "✅ تفضل المقطع جاهز بالجودة المطلوبة!" if lang == 'ar' else "✅ Here is your clip in requested quality!"
+            caption = "✅ تفضل مقطعك جاهز بسرعة فائقة!" if lang == 'ar' else "✅ Fast clip ready!"
             with open(out, "rb") as f:
                 if is_audio_only:
                     bot.send_audio(chat_id, f, caption=caption, reply_markup=get_main_menu_keyboard(lang))
@@ -246,7 +245,7 @@ def handle_quality_selection(call):
             confirm_msg = "هل تم تأكيد واستلام الملف بنجاح لحذفه من الجهاز؟" if lang == 'ar' else "Confirm file receipt to delete from server?"
             bot.send_message(chat_id, confirm_msg, reply_markup=get_confirm_keyboard(out))
         else:
-            bot.send_message(chat_id, "❌ حدث خطأ أثناء التحضير، تأكد من الوقت والرابط.")
+            bot.send_message(chat_id, "❌ حدث خطأ أثناء القص، تأكد من الوقت والرابط.")
     except subprocess.CalledProcessError as e:
         err_log = e.stderr[-350:] if e.stderr else str(e)
         bot.send_message(chat_id, f"❌ خطأ تقني أثناء القص:\n`{err_log}`", parse_mode="Markdown")
@@ -300,7 +299,6 @@ def handle_counter(call):
             
             user_data[chat_id]['end_time'] = end_time
             
-            # إرسال قائمة اختيار الجودة والصيغة للمستخدم
             msg_qual = "🎬 اختر الجودة أو الصيغة المطلوبة للمقطع:" if lang == 'ar' else "🎬 Choose desired quality/format for the clip:"
             bot.send_message(chat_id, msg_qual, reply_markup=get_quality_keyboard())
         return
@@ -312,7 +310,7 @@ def handle_counter(call):
     except Exception: pass
 
 if __name__ == "__main__":
-    print("🤖 Worker Alpha running with Quality Selection...")
+    print("🤖 Fast Worker Alpha running...")
     while True:
         if time.time() - START_TIME > MAX_LIFETIME:
             print("🔄 انتهت الجلسة، جاري إعادة التشغيل أوتوماتيكياً...")
