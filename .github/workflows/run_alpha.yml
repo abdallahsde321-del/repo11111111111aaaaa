@@ -1,29 +1,32 @@
-name: Run Worker Alpha
+name: Run Video Bot
 
 on:
   schedule:
-    - cron: '0 */6 * * *'
+    - cron: "0 */6 * * *"
   workflow_dispatch:
 
+# نسخة واحدة فقط شغالة، ونسخة واحدة في الانتظار. لا نلغي النسخة الشغالة أبدًا.
 concurrency:
-  group: alpha-bot
+  group: video-bot-worker
   cancel-in-progress: false
 
 jobs:
   run-bot:
     runs-on: ubuntu-latest
-    timeout-minutes: 360
+    timeout-minutes: 355
     permissions:
+      contents: read
       actions: write
+
     steps:
-      - name: Checkout Code
+      - name: Checkout
         uses: actions/checkout@v4
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
-          cache: 'pip'
+          python-version: "3.12"
+          cache: pip
 
       - name: Set up Deno
         uses: denoland/setup-deno@v2
@@ -33,28 +36,63 @@ jobs:
       - name: Install FFmpeg
         run: |
           sudo apt-get update
-          sudo apt-get install -y ffmpeg
+          sudo apt-get install -y --no-install-recommends ffmpeg
 
-      - name: Start PO Token provider
-        run: |
-          docker run -d --name pot -p 4416:4416 brainicism/bgutil-ytdlp-pot-provider
-          for i in $(seq 1 20); do
-            curl -sf http://127.0.0.1:4416/ping && break
-            sleep 1
-          done
-
-      - name: Install Dependencies
+      - name: Install Python packages
         run: |
           python -m pip install --upgrade pip
-          pip install -U -r requirements.txt
+          python -m pip install --upgrade -r requirements.txt
 
-      - name: Run Alpha Bot
+      - name: Start YouTube PO Token provider
+        continue-on-error: true
+        run: |
+          docker run -d --name bgutil-provider --init \
+            -p 127.0.0.1:4416:4416 \
+            brainicism/bgutil-ytdlp-pot-provider:latest
+
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:4416/ping >/dev/null 2>&1; then
+              echo "PO Token provider is ready."
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "PO Token provider did not become ready; continuing without it."
+
+      - name: Verify tools
+        run: |
+          yt-dlp --version
+          ffmpeg -version | head -n 1 || true
+          deno --version | head -n 1 || true
+
+      - name: Mark worker start time
+        run: echo "WORKER_STARTED=$(date +%s)" >> "$GITHUB_ENV"
+
+      - name: Run bot
+        id: bot
+        continue-on-error: true
         env:
           BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
-        run: python bot_alpha.py
+          PYTHONUNBUFFERED: "1"
+        run: python -u bot_alpha.py
 
-      - name: Auto Trigger Next Run
-        if: always()
+      # يعيد التشغيل فقط لو البوت اشتغل 10 دقائق على الأقل،
+      # عشان أي خطأ فوري (مثل توكن غلط) ما يعمل حلقة تشغيل لا نهائية.
+      - name: Start next worker
+        if: ${{ !cancelled() }}
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh workflow run run_alpha.yml
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          elapsed=$(( $(date +%s) - WORKER_STARTED ))
+          if [ "$elapsed" -lt 600 ]; then
+            echo "::warning::Bot stopped after ${elapsed}s; not re-dispatching to avoid a crash loop."
+            exit 0
+          fi
+          gh workflow run run_alpha.yml --ref "${GITHUB_REF_NAME}"
+
+      - name: Fail the run if the bot crashed
+        if: ${{ steps.bot.outcome == 'failure' }}
+        run: |
+          echo "::error::bot_alpha.py exited with an error. Check the 'Run bot' step logs."
+          exit 1
