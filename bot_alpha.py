@@ -4,7 +4,7 @@ import re
 import time
 import sys
 import telebot
-from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
+from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton
 
 TOKEN = os.environ.get('BOT_TOKEN')
 bot = telebot.TeleBot(TOKEN)
@@ -17,6 +17,19 @@ if cookies_data:
 user_data = {}
 START_TIME = time.time()
 MAX_LIFETIME = 6 * 3600  # 6 ساعات
+
+def get_main_menu_keyboard(lang='ar'):
+    markup = ReplyKeyboardMarkup(row_width=2, resize_keyboard=True)
+    if lang == 'ar':
+        btn1 = KeyboardButton("🎬 قص فيديو جديد")
+        btn2 = KeyboardButton("🌐 تغيير اللغة")
+        btn3 = KeyboardButton("ℹ️ مساعدة")
+    else:
+        btn1 = KeyboardButton("🎬 Clip New Video")
+        btn2 = KeyboardButton("🌐 Change Language")
+        btn3 = KeyboardButton("ℹ️ Help")
+    markup.add(btn1, btn2, btn3)
+    return markup
 
 def get_time_keyboard(prefix, h, m, s):
     markup = InlineKeyboardMarkup()
@@ -38,44 +51,112 @@ def get_time_keyboard(prefix, h, m, s):
     markup.row(InlineKeyboardButton("✅ تم وتأكيد الوقت", callback_data=f"{prefix}_done"))
     return markup
 
+def get_confirm_keyboard(filename):
+    """زر تأكيد حذف الفيديو من السيرفر"""
+    markup = InlineKeyboardMarkup()
+    markup.row(
+        InlineKeyboardButton("نعم ✅", callback_data=f"confirm_delete_{filename}"),
+        InlineKeyboardButton("لا ❌", callback_data=f"cancel_delete_{filename}")
+    )
+    return markup
+
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
     chat_id = message.chat.id
-    markup = InlineKeyboardMarkup()
-    markup.add(
-        InlineKeyboardButton("العربية 🇸🇦", callback_data="lang_ar"),
-        InlineKeyboardButton("English 🇬🇧", callback_data="lang_en")
-    )
-    bot.send_message(chat_id, "🤖 [Worker-Alpha (6H)] مرحباً بك! يرجى اختيار اللغة:", reply_markup=markup)
+    if chat_id in user_data and 'lang' in user_data[chat_id]:
+        lang = user_data[chat_id]['lang']
+        msg = "مرحباً بك مجدداً! أرسل رابط فيديو أو بث اليوتيوب الآن لقص مقطع جديد:" if lang == 'ar' else "Welcome back! Send a YouTube link now to clip a new video:"
+        bot.send_message(chat_id, msg, reply_markup=get_main_menu_keyboard(lang))
+        user_data[chat_id]['step'] = 'waiting_for_url'
+    else:
+        markup = InlineKeyboardMarkup()
+        markup.add(
+            InlineKeyboardButton("العربية 🇸🇦", callback_data="lang_ar"),
+            InlineKeyboardButton("English 🇬🇧", callback_data="lang_en")
+        )
+        bot.send_message(chat_id, "مرحباً بك! يرجى اختيار اللغة:\nWelcome! Please choose your language:", reply_markup=markup)
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith('lang_'))
 def set_language(call):
     chat_id = call.message.chat.id
     lang = call.data.split('_')[1]
-    user_data[chat_id] = {'lang': lang, 'h': 0, 'm': 0, 's': 0}
+    if chat_id not in user_data:
+        user_data[chat_id] = {}
+    user_data[chat_id].update({'lang': lang, 'h': 0, 'm': 0, 's': 0, 'step': 'waiting_for_url'})
     bot.answer_callback_query(call.id)
-    bot.send_message(chat_id, "✅ تم اختيار اللغة (Alpha). أرسل رابط يوتيوب الآن:")
-    user_data[chat_id]['step'] = 'waiting_for_url'
+    
+    msg = "✅ تم اختيار اللغة العربية.\nالرجاء إرسال رابط فيديو أو بث اليوتيوب الآن:" if lang == 'ar' else "✅ English selected.\nPlease send the YouTube video or live link now:"
+    bot.send_message(chat_id, msg, reply_markup=get_main_menu_keyboard(lang))
 
 @bot.message_handler(func=lambda message: True)
 def handle_steps(message):
     chat_id = message.chat.id
     text = message.text.strip()
-    if chat_id not in user_data:
-        bot.reply_to(message, "الرجاء البدء بالضغط على /start")
-        return
     
-    if user_data[chat_id].get('step') == 'waiting_for_url':
+    if chat_id not in user_data or 'lang' not in user_data[chat_id]:
+        send_welcome(message)
+        return
+
+    lang = user_data[chat_id]['lang']
+
+    if text in ["🎬 قص فيديو جديد", "🎬 Clip New Video"]:
+        user_data[chat_id]['step'] = 'waiting_for_url'
+        msg = "أرسل رابط فيديو أو بث اليوتيوب الآن:" if lang == 'ar' else "Send YouTube link now:"
+        bot.send_message(chat_id, msg, reply_markup=get_main_menu_keyboard(lang))
+        return
+    elif text in ["🌐 تغيير اللغة", "🌐 Change Language"]:
+        markup = InlineKeyboardMarkup()
+        markup.add(
+            InlineKeyboardButton("العربية 🇸🇦", callback_data="lang_ar"),
+            InlineKeyboardButton("English 🇬🇧", callback_data="lang_en")
+        )
+        bot.send_message(chat_id, "اختر اللغة جديدة / Choose language:", reply_markup=markup)
+        return
+    elif text in ["ℹ️ مساعدة", "ℹ️ Help"]:
+        help_text = "💡 البوت يقوم بقص أي مقطع من فيديوهات أو بثوث يوتيوب المباشرة بأعلى جودة بدقة ثانية بـ ثانية." if lang == 'ar' else "💡 This bot clips any section from YouTube videos or live streams in high quality."
+        bot.send_message(chat_id, help_text)
+        return
+
+    step = user_data[chat_id].get('step', 'waiting_for_url')
+    
+    if step == 'waiting_for_url' or re.search(r'https?://', text):
         url_match = re.search(r'(https?://(?:www\.)?(?:youtube\.com/watch\?v=|youtu\.be/|youtube\.com/live/)\S+)', text)
         if url_match:
             user_data[chat_id]['url'] = url_match.group(1)
             user_data[chat_id]['step'] = 'setting_start_time'
             user_data[chat_id]['h'], user_data[chat_id]['m'], user_data[chat_id]['s'] = 0, 0, 0
-            bot.send_message(chat_id, "⏱️ حدد وقت البداية بالعداد:", reply_markup=get_time_keyboard("start", 0, 0, 0), parse_mode="Markdown")
+            
+            msg_text = "⏱️ حدد **وقت البداية** بالعداد:" if lang == 'ar' else "⏱️ Set **start time**:"
+            bot.send_message(chat_id, msg_text, reply_markup=get_time_keyboard("start", 0, 0, 0), parse_mode="Markdown")
         else:
-            bot.reply_to(message, "❌ رابط غير صحيح. حاول مجدداً:")
+            err = "❌ رابط يوتيوب غير صحيح. حاول مرة أخرى:" if lang == 'ar' else "❌ Invalid YouTube URL. Try again:"
+            bot.send_message(chat_id, err)
 
-@bot.callback_query_handler(func=lambda call: '_' in call.data and not call.data.startswith('lang_'))
+@bot.callback_query_handler(func=lambda call: call.data.startswith('confirm_delete_') or call.data.startswith('cancel_delete_'))
+def handle_delete_confirmation(call):
+    chat_id = call.message.chat.id
+    lang = user_data.get(chat_id, {}).get('lang', 'ar')
+    
+    if call.data.startswith('confirm_delete_'):
+        filename = call.data.replace('confirm_delete_', '')
+        if os.path.exists(filename):
+            try:
+                os.remove(filename)
+                msg = "🗑️ تم تأكيد الاستلام وحذف الفيديو من الجهاز بنجاح!" if lang == 'ar' else "🗑️ Confirmed! Video file deleted from server."
+            except Exception as e:
+                msg = f"❌ خطأ أثناء الحذف: {str(e)}"
+        else:
+            msg = "✅ الملف محذوف بالفعل من الجهاز." if lang == 'ar' else "✅ File already deleted."
+        
+        bot.answer_callback_query(call.id, "تم الحذف")
+        bot.edit_message_text(chat_id=chat_id, message_id=call.message.message_id, text=msg)
+    
+    elif call.data.startswith('cancel_delete_'):
+        msg = "ℹ️ تم الإبقاء على الفيديو مؤقتاً." if lang == 'ar' else "ℹ️ Video retained temporarily."
+        bot.answer_callback_query(call.id, "تم الإلغاء")
+        bot.edit_message_text(chat_id=chat_id, message_id=call.message.message_id, text=msg)
+
+@bot.callback_query_handler(func=lambda call: '_' in call.data and not call.data.startswith('lang_') and not 'delete_' in call.data)
 def handle_counter(call):
     chat_id = call.message.chat.id
     if chat_id not in user_data: return
@@ -85,6 +166,8 @@ def handle_counter(call):
     if 'h' not in user_data[chat_id]: user_data[chat_id].update({'h': 0, 'm': 0, 's': 0})
         
     h, m, s = user_data[chat_id]['h'], user_data[chat_id]['m'], user_data[chat_id]['s']
+    lang = user_data[chat_id].get('lang', 'ar')
+    
     if action == 'h_plus': h = (h + 1) % 24
     elif action == 'h_minus': h = (h - 1) % 24
     elif action == 'm_plus': m = (m + 1) % 60
@@ -101,36 +184,72 @@ def handle_counter(call):
             user_data[chat_id]['start_time'] = time_str
             user_data[chat_id]['step'] = 'setting_end_time'
             user_data[chat_id]['h'], user_data[chat_id]['m'], user_data[chat_id]['s'] = 0, 0, 0
-            bot.send_message(chat_id, f"✅ وقت البداية: `{time_str}`\n⏱️ حدد وقت النهاية:", reply_markup=get_time_keyboard("end", 0, 0, 0), parse_mode="Markdown")
+            
+            msg_text = f"✅ وقت البداية: `{time_str}`\n\n⏱️ حدد **وقت النهاية** بالعداد:" if lang == 'ar' else f"✅ Start time: `{time_str}`\n\n⏱️ Set **end time**:"
+            bot.send_message(chat_id, msg_text, reply_markup=get_time_keyboard("end", 0, 0, 0), parse_mode="Markdown")
         elif prefix == 'end':
-            end_time, start_time, url = time_str, user_data[chat_id]['start_time'], user_data[chat_id]['url']
-            bot.send_message(chat_id, f"⏳ [Alpha] جاري قص الفيديو...")
+            end_time = time_str
+            start_time = user_data[chat_id]['start_time']
+            url = user_data[chat_id]['url']
+            
+            if start_time == end_time:
+                err_time = "❌ يجب أن يكون وقت النهاية أكبر من وقت البداية!" if lang == 'ar' else "❌ End time must be after start time!"
+                bot.send_message(chat_id, err_time)
+                return
+            
+            user_data[chat_id]['end_time'] = end_time
+            wait_msg = f"⏳ [Alpha] جاري قص الفيديو من `{start_time}` إلى `{end_time}` بأعلى جودة..." if lang == 'ar' else f"⏳ [Alpha] Clipping from `{start_time}` to `{end_time}`..."
+            bot.send_message(chat_id, wait_msg, parse_mode="Markdown")
+            
             try:
-                out = "alpha_clip.mp4"
+                out = f"alpha_clip_{chat_id}.mp4"
                 if os.path.exists(out): os.remove(out)
-                subprocess.run([
-                    "yt-dlp", "--remote-components", "ejs:github", "--cookies", "cookies.txt",
-                    "--download-sections", f"*{start_time}-{end_time}", "-f", "bestvideo+bestaudio/best",
-                    "--merge-output-format", "mp4", "-o", out, url
-                ], check=True)
+                
+                command = [
+                    "yt-dlp",
+                    "--remote-components", "ejs:github",
+                    "--extractor-args", "youtube:player_client=android,tv",
+                    "--cookies", "cookies.txt",
+                    "--download-sections", f"*{start_time}-{end_time}",
+                    "-f", "bestvideo+bestaudio/best",
+                    "--merge-output-format", "mp4",
+                    "-o", out,
+                    url
+                ]
+                subprocess.run(command, capture_output=True, text=True, check=True)
+                
                 if os.path.exists(out):
-                    with open(out, "rb") as f: bot.send_video(chat_id, f, caption="✅ [Alpha] جاهز!")
-                    os.remove(out)
+                    caption = "✅ تفضل مقطعك جاهز بأعلى جودة!" if lang == 'ar' else "✅ Here is your clip!"
+                    with open(out, "rb") as f:
+                        bot.send_video(chat_id, f, caption=caption, reply_markup=get_main_menu_keyboard(lang))
+                    
+                    # طلب التأكيد لحذف الفيديو من السيرفر
+                    confirm_msg = "هل تم تأكيد واستلام الفيديو بنجاح لحذفه من الجهاز؟" if lang == 'ar' else "Confirm video receipt to delete file from server?"
+                    bot.send_message(chat_id, confirm_msg, reply_markup=get_confirm_keyboard(out))
+                else:
+                    bot.send_message(chat_id, "❌ حدث خطأ أثناء القص، تأكد من الوقت والرابط.")
+            except subprocess.CalledProcessError as e:
+                err_log = e.stderr[-300:] if e.stderr else str(e)
+                bot.send_message(chat_id, f"❌ خطأ تقني أثناء القص:\n`{err_log}`", parse_mode="Markdown")
             except Exception as e:
-                bot.send_message(chat_id, f"❌ خطأ: {str(e)}")
+                bot.send_message(chat_id, f"❌ خطأ غير متوقع: {str(e)}")
+            
             user_data[chat_id]['step'] = 'waiting_for_url'
         return
 
     try:
         bot.answer_callback_query(call.id, f"الوقت: {time_str}")
-        bot.edit_message_text(chat_id=chat_id, message_id=call.message.message_id, text="⏱️ حدد الوقت بالعداد:", reply_markup=get_time_keyboard(prefix, h, m, s), parse_mode="Markdown")
+        msg_text = "⏱️ حدد وقت البداية:" if prefix == 'start' else "⏱️ حدد وقت النهاية:"
+        bot.edit_message_text(chat_id=chat_id, message_id=call.message.message_id, text=msg_text, reply_markup=get_time_keyboard(prefix, h, m, s))
     except Exception: pass
 
 if __name__ == "__main__":
-    print("🤖 Alpha Worker (6H) started...")
+    print("🤖 Worker Alpha (6H) running...")
     while True:
         if time.time() - START_TIME > MAX_LIFETIME:
-            print("🔄 انتهت الـ 6 ساعات، إيقاف للجلسة القادمة...")
+            print("🔄 انتهت الـ 6 ساعات الخاصة بـ Alpha...")
             sys.exit(0)
-        try: bot.polling(none_stop=True, interval=1, timeout=30)
-        except Exception as e: time.sleep(5)
+        try:
+            bot.polling(none_stop=True, interval=1, timeout=30, skip_pending=True)
+        except Exception:
+            time.sleep(5)
