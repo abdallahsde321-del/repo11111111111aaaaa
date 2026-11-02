@@ -2,7 +2,6 @@ name: Run Worker Alpha
 
 on:
   schedule:
-    # إعادة تشغيل تلقائية كل 6 ساعات لتأكيد استمرارية السيرفر
     - cron: '0 */6 * * *'
   workflow_dispatch:
 
@@ -18,10 +17,12 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Install FFmpeg
+      - name: Install FFmpeg, Node.js and Deno
         run: |
           sudo apt-get update
-          sudo apt-get install -y ffmpeg
+          sudo apt-get install -y ffmpeg nodejs curl
+          curl -fsSL https://deno.land/install.sh | sh
+          echo "$HOME/.deno/bin" >> $GITHUB_PATH
 
       - name: Install Dependencies
         run: |
